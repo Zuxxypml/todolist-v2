@@ -1,127 +1,133 @@
-// Requiring dependencies and Creating Variables
+// Node + Express
+// Configuration
 const express = require("express");
 const bodyParser = require("body-parser");
-const mongoose = require("mongoose");
+const lodash = require("lodash");
 const app = express();
+// MongoDB
+const mongoose = require("mongoose");
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static("public"));
 app.set("view engine", "ejs");
-// MongoDB
-// Start of mongoDB
 mongoose.connect("mongodb://localhost:27017/todolistDB");
-// Schema and models
-const ItemsSchema = new mongoose.Schema({
-  name: String,
-});
-const Item = mongoose.model("Item", ItemsSchema);
-const code = new Item({
-  name: "Code something new.",
-});
-const eat = new Item({
-  name: "Eat",
-});
-const brush = new Item({
-  name: "Brush my teeth",
-});
-const defaultTodo = [brush, eat, code];
-// Work Items Schema
-const WorkSchema = new mongoose.Schema({
-  name: String,
-});
-const Work = mongoose.model("Work", WorkSchema);
 
-// Item.insertMany(defaultTodo, (err) => {
-//   if (err) {
-//     console.log(err);
-//   } else {
-//     console.log("Successfully Saved to DB.");
-//   }
-// });
-
-// end of MongoDB
-// Requests
-// Get requests
+const itemsSchema = {
+  name: String,
+};
+const Item = mongoose.model("Item", itemsSchema);
+const welcome = new Item({
+  name: "Welcome to your todo-list",
+});
+const removeItem = new Item({
+  name: "<-- Hit this to remove an item",
+});
+const defaultItems = [welcome, removeItem];
+const ListSchema = {
+  name: String,
+  items: [itemsSchema],
+};
+const List = mongoose.model("List", ListSchema);
+// Home route
 app.get("/", (req, res) => {
+  // Finding items from db
   Item.find({}, (err, items) => {
     if (err) {
       console.log(err);
     } else {
       if (items.length === 0) {
-        Item.insertMany(defaultTodo, (err) => {
+        // Inserts default items when items is empty
+        Item.insertMany(defaultItems, (err) => {
           if (err) {
             console.log(err);
           } else {
             console.log("Successfully Saved to DB.");
           }
-          res.redirect("/");
         });
+        res.redirect("/");
       } else {
-        res.render("index", {
-          listTitle: " Today ",
-          newItem: items,
-        });
+        res.render("index", { listTitle: "Today", newItem: items });
       }
     }
   });
 });
-app.get("/work", (req, res) => {
-  Work.find({}, (err, works) => {
-    if (err) {
-      console.log(err);
-    } else {
-      res.render("index", { listTitle: "Work List", newItem: works });
-    }
+
+app.post("/", (req, res) => {
+  let newItem = req.body.newItem;
+  let newList = req.body.listType;
+  const newTodoItem = new Item({
+    name: newItem,
   });
+  if (newList === "Today") {
+    newTodoItem.save();
+    res.redirect("/");
+  } else {
+    List.findOne({ name: newList }, (err, Foundlist) => {
+      if (err) {
+        console.log(err);
+      } else {
+        Foundlist.items.push(newTodoItem);
+        Foundlist.save();
+        res.redirect("/" + newList);
+      }
+    });
+  }
 });
+// About Route
 app.get("/about", (req, res) => {
   res.render("about");
 });
-// Post requests
-app.post("/", (req, res) => {
-  let newTodo = req.body.newItem;
-  if (req.body.listType === "Work List") {
-    const newItem = new Work({
-      name: newTodo,
-    });
-    Work.insertMany([newItem], (err) => {
+// Delete Route
+app.post("/delete", (req, res) => {
+  const deletedItem = req.body.checkbox;
+  let listName = req.body.listName;
+  if (listName === "Today") {
+    Item.findByIdAndDelete({ _id: deletedItem }, (err) => {
       if (err) {
         console.log(err);
       } else {
-        console.log("Successfully added new item to Work DB");
+        console.log("Item successfully Deleted.");
+        res.redirect("/");
       }
     });
-    res.redirect("/work");
   } else {
-    const newItem = new Item({
-      name: newTodo,
-    });
-    Item.insertMany([newItem], (err) => {
-      if (err) {
-        console.log(err);
-      } else {
-        console.log("Successfully added new item");
+    List.findOneAndUpdate(
+      { name: listName },
+      { $pull: { items: { _id: deletedItem } } },
+      (err, Foundlist) => {
+        if (err) {
+          console.log(err);
+        } else {
+          res.redirect("/" + listName);
+        }
       }
-    });
-    res.redirect("/");
+    );
   }
 });
-
-app.post("/work", (req, res) => {
-  let newTodo = req.body.newItem;
-  const newItem = new Work({
-    name: newTodo,
-  });
-  Work.insertMany([newItem], (err) => {
-    if (err) {
-      console.log(err);
-    } else {
-      console.log("Successfully added new item to Work DB");
+// Custom Route
+app.get("/:customRoute", (req, res) => {
+  const customRoute = lodash.capitalize(req.params.customRoute);
+  List.findOne({ name: customRoute }, (err, Foundlist) => {
+    if (!err) {
+      if (!Foundlist) {
+        // Creates new list
+        const list = new List({
+          name: customRoute,
+          items: defaultItems,
+        });
+        list.save();
+        res.redirect("/" + customRoute);
+      } else {
+        // Uses existing List
+        res.render("index", {
+          listTitle: Foundlist.name,
+          newItem: Foundlist.items,
+        });
+      }
     }
   });
-  res.redirect("/work");
 });
 
-// Listener
+// App Listener
 app.listen(process.env.PORT || 8080, () => {
   console.log("Server started on port 8080");
 });
